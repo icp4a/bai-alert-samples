@@ -1,0 +1,134 @@
+##################################################################
+# Licensed Materials - Property of IBM
+#  5737-I23
+#  Copyright IBM Corp. 2023. All Rights Reserved.
+#  U.S. Government Users Restricted Rights:
+#  Use, duplication or disclosure restricted by GSA ADP Schedule
+#  Contract with IBM Corp.
+##################################################################
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bai-alert-sample-config
+data:
+  run.sh: |
+    #!/bin/bash
+    set -e
+    SCRIPT_PATH=$(dirname $0)
+    SCRIPT=$(basename "$0")
+    CONFIG_DIR="$SCRIPT_PATH/config"
+    KAFKA_SECURITY_FILE="$CONFIG_DIR/kafka-security.properties"
+    KAFKA_SECURITY_PROTOCOL="SASL_SSL"
+    KAFKA_SASL_MECHANISM="SCRAM-SHA-512"
+    KAFKA_CA_CERT_FILE="$CONFIG_DIR/ca.cert"
+    KAFKA_TRUSTSTORE_LOCATION="$CONFIG_DIR/truststore.jks"
+    KAFKA_TRUSTSTORE_PASSWORD="password"
+
+    create_kafka_truststore() {
+        echo "Creating kafka trustore at ${KAFKA_TRUSTSTORE_LOCATION} and import kafka cert inside"
+        keytool -keystore "$KAFKA_TRUSTSTORE_LOCATION" -alias $KAFKA_USERNAME -import -file "$KAFKA_CA_CERT_FILE" -noprompt -storepass "$KAFKA_TRUSTSTORE_PASSWORD" -trustcacerts
+    }
+
+    create_config_dir() {
+        echo "Creating config directory"
+        mkdir "$CONFIG_DIR"
+    }
+
+    create_kafka_security_file() {
+        # Get Kafka connection properties
+        KAFKA_BOOTSTRAP_SERVERS=$(oc get kafka iaf-system -o jsonpath='{.status.listeners[?(.name=="external")].bootstrapServers}')
+        KAFKA_SECRET=$(oc get kafkauser ${KAFKA_USER} -o jsonpath='{.status.secret}')
+        KAFKA_USERNAME=${KAFKA_SECRET}
+        KAFKA_PASSWORD=$(oc get secret ${KAFKA_SECRET} -o jsonpath='{.data.password}' | base64 -d)   
+        $(oc get kafka iaf-system -o jsonpath='{.status.listeners[?(.name=="external")].certificates[0]}' > ${KAFKA_CA_CERT_FILE})
+        echo "Creating kafka security file"
+        # Delete kafka security file if already present
+        if [ -f "$KAFKA_SECURITY_FILE" ];then
+            rm -rf $KAFKA_SECURITY_FILE
+        fi
+        # Create kafka security file
+        echo "sasl.mechanism=${KAFKA_SASL_MECHANISM}" >> ${KAFKA_SECURITY_FILE}
+        echo "security.protocol=${KAFKA_SECURITY_PROTOCOL}" >> ${KAFKA_SECURITY_FILE}
+        echo "ssl.enabled.protocols=TLSv1.2" >> ${KAFKA_SECURITY_FILE}
+        echo "ssl.truststore.type=JKS" >> ${KAFKA_SECURITY_FILE}
+        echo "ssl.truststore.location=${KAFKA_TRUSTSTORE_LOCATION}" >> ${KAFKA_SECURITY_FILE}
+        echo "ssl.truststore.password=${KAFKA_TRUSTSTORE_PASSWORD}" >> ${KAFKA_SECURITY_FILE}
+        echo "sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required username=\"${KAFKA_USERNAME}\" password=\"${KAFKA_PASSWORD}\";" >> ${KAFKA_SECURITY_FILE}
+      }
+
+    send_email() {
+      local alert=$1
+      echo "A new alerts has been received ${alert}"
+      echo "Sending email..."
+      format_message "${alert}" > message.txt
+      curl --ssl "${EMAIL_PROTOCOL}://${EMAIL_SERVER_HOST}:${EMAIL_SERVER_PORT}" --mail-from "${EMAIL_FROM}" \
+      --mail-rcpt "${EMAIL_TO}" --upload-file message.txt \
+      --user "${EMAIL_USERNAME}:${EMAIL_PASSWORD}"
+      echo "Email message sent"
+    }
+
+    format_message() {
+      # Extract attributes from Kafka message
+      local kafka_message=$1
+      local dashboard_name=$(echo "${kafka_message}" | jq -r '.dashboardName')
+      local dashboard_owner=$(echo "${kafka_message}" | jq -r '.dashboardOwner')
+      local dashboard_type=$(echo "${kafka_message}" | jq -r '.dashboardType')
+      local chart_name=$(echo "${kafka_message}" | jq -r '.chartName')
+      local monitoring_source=$(echo "${kafka_message}" | jq -r '.monitoringSource')
+      local timestamp=$(echo "${kafka_message}" | jq -r '.timestamp')
+      local value=$(echo "${kafka_message}" | jq -r '.value')
+      local priority=$(echo "${kafka_message}" | jq -r '.priority')
+      local kind=$(echo "${kafka_message}" | jq -r '.kind')
+      local threshold_name=$(echo "${kafka_message}" | jq -r '.thresholdName')
+      local threshold_value=$(echo "${kafka_message}" | jq -r '.thresholdValue')
+      local message=$(echo "${kafka_message}" | jq -r '.message')
+
+      # Start building formatted message
+      local trigger_message;
+      if [ "${kind}" == "HitTargetUp" ]; then
+        trigger_message=$(printf "The KPI value went above the threshold \'%s\'" "${threshold_name}")
+      elif [ "${kind}" == "HitTargetDown" ]; then
+        trigger_message=$(printf "The KPI value went below the threshold \'%s\'" "${threshold_name}")
+      elif [ "${kind}" == "MissTargetUp" ]; then
+        trigger_message=$(printf "The KPI value did not go above the threshold \'%s\' on time" "${threshold_name}")
+      elif [ "${kind}" == "MissTargetDown" ]; then
+        trigger_message=$(printf "The KPI value did not go below the threshold \'%s\' on time" "${threshold_name}")
+      else
+        trigger_message="Unknown alert message type."
+      fi
+      local formattedMessage=$(printf "To: ${MAIL_TO} \nFrom: ${MAIL_FROM} \nSubject: An alert has been triggered in dashboard \'%s\':\n\n . Trigger: %s\n . Threshold value: %s\n . Message: %s\n . Priority: %s\n"  "${dashboard_name}" "${trigger_message}" "${threshold_value}" "${message}" "${priority}")
+
+      # Extract and include optional attributes
+      if [ "${kind}" == "MissTargetUp" ] || [ "${kind}" == "MissTargetDown" ]; then
+        local startTimeWindow=$(echo "${kafka_message}" | jq -r '.startTimeWindow')
+        local endTimeWindow=$(echo "${kafka_message}" | jq -r '.endTimeWindow')
+        formattedMessage=$(printf "%s\n . Start time window: %s\n . End time window: %s" "${formattedMessage}" "${startTimeWindow}" "${endTimeWindow}")
+      fi
+      # Complete and return formatted message
+      formattedMessage=$(printf "%s\n . Value: %s\n . Timestamp: %s\n . Chart name: %s\n . Monitoring source: %s\n . Dashboard owner: %s\n . Dashboard type: %s" "${formattedMessage}" "${value}" "${timestamp}" "${chart_name}" "${monitoring_source}" "${dashboard_owner}" "${dashboard_type}")
+      echo "${formattedMessage}"
+    }
+    
+    main() {
+
+        if [ ! -d "$CONFIG_DIR" ]; then
+            create_config_dir
+            create_kafka_security_file
+            create_kafka_truststore            
+        fi
+        echo "Starting Kafka console consumer..."
+        kafka-console-consumer.sh \
+          --bootstrap-server "$KAFKA_BOOTSTRAP_SERVERS" \
+          --consumer.config "$KAFKA_SECURITY_FILE" \
+          --topic "$KAFKA_ALERTS_TOPIC" \
+          --group icp4ba-bai \
+          --property print.key=false \
+          --property print.value=true \
+          --property key.separator=':' \
+          --property key.deserializer=org.apache.kafka.common.serialization.StringDeserializer \
+          --property value.deserializer=org.apache.kafka.common.serialization.StringDeserializer |
+        while IFS= read -r line; do
+          send_email "$line"
+        done
+    }
+    main $@
