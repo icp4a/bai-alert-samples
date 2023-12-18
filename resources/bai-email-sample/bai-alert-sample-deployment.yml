@@ -1,0 +1,95 @@
+##################################################################
+# Licensed Materials - Property of IBM
+#  5737-I23
+#  Copyright IBM Corp. 2023. All Rights Reserved.
+#  U.S. Government Users Restricted Rights:
+#  Use, duplication or disclosure restricted by GSA ADP Schedule
+#  Contract with IBM Corp.
+##################################################################
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: bai-alert-sample-email
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: bai-alert-sample
+      app.kubernetes.io/name: bai-alert-sample
+      component: bai-alert-sample-email
+  template:
+    metadata:
+      labels:
+        app: bai-alert-sample
+        app.kubernetes.io/component: bai-alert-sample
+        app.kubernetes.io/name: bai-alert-sample
+        component: bai-alert-sample-email
+    spec:
+      containers:
+      - command:
+        - /usr/alert-notifier/run.sh
+        env:
+        - name: KAFKA_ALERTS_TOPIC
+          value: icp4ba-bai-alerts       
+        - name: KAFKA_USER
+          value: icp4ba-kafka-auth-0        
+        - name: EMAIL_PROTOCOL
+          valueFrom:
+            secretKeyRef:
+              name: bai-alert-sample-secret
+              key: email_protocol
+        - name: EMAIL_SERVER_HOST
+          valueFrom:
+            secretKeyRef:
+              name: bai-alert-sample-secret
+              key: email_server_host
+        - name: EMAIL_SERVER_PORT
+          valueFrom:
+            secretKeyRef:
+              name: bai-alert-sample-secret
+              key: email_server_port
+        - name: EMAIL_FROM
+          valueFrom:
+            secretKeyRef:
+              name: bai-alert-sample-secret
+              key: email_from
+        - name: EMAIL_TO
+          valueFrom:
+            secretKeyRef:
+              name: bai-alert-sample-secret
+              key: email_to
+        - name: EMAIL_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: bai-alert-sample-secret
+              key: email_username
+        - name: EMAIL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: bai-alert-sample-secret
+              key: email_password
+        image: image-registry.openshift-image-registry.svc:5000/<cp4ba_namespace>/bai-alert-sample:latest
+        imagePullPolicy: Always
+        name: slack-alert-notifier
+        resources: {}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /usr/alert-notifier
+          name: working-dir
+        - mountPath: /usr/alert-notifier/run.sh
+          name: alert-notifier-script-volume
+          subPath: run.sh
+      dnsPolicy: ClusterFirst
+      schedulerName: default-scheduler
+      securityContext: {}
+      serviceAccount: bai-alert-sample-sa
+      serviceAccountName: bai-alert-sample-sa
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - emptyDir:
+          sizeLimit: 500Mi
+        name: working-dir
+      - configMap:
+          defaultMode: 511
+          name: bai-alert-sample-config
+        name: alert-notifier-script-volume
