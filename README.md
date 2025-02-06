@@ -1,6 +1,6 @@
 # Processing IBM Business Automation Insights alerts
 
-IBM Business Automation Insights allows you to setup and visualize alerts on period KPI charts. IBM Business Automation Insights 24.0.0 brings the additional capacity to send alerts to a Kafka topic created as part of a Business Automation Insights deployment.<br/><br/>
+IBM Business Automation Insights allows you to setup and visualize alerts on period KPI charts. IBM Business Automation Insights 24.0.1 brings the additional capacity to send alerts to a Kafka topic created as part of a Business Automation Insights deployment.<br/><br/>
 This repository provides two samples that illustrate how alerts that have been posted to the Kafka topic can be read and forwarded to external recipients:
 * The first sample illustrates how to forward events to a **Slack channel**.
 * The second sample illustrates how to forward events to an **email address**.<br/>
