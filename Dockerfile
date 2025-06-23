@@ -1,7 +1,7 @@
 ##################################################################
 # Licensed Materials - Property of IBM
 #  5737-I23
-#  Copyright IBM Corp. 2023. All Rights Reserved.
+#  Copyright IBM Corp. 2023, 2025. All Rights reserved.
 #  U.S. Government Users Restricted Rights:
 #  Use, duplication or disclosure restricted by GSA ADP Schedule
 #  Contract with IBM Corp.
@@ -13,7 +13,7 @@ FROM registry.access.redhat.com/ubi8/openjdk-11:${UBI_IMAGE_TAG} as build
 
 ARG OCP_CLIENT_VERSION=4.12
 ARG JQ_VERSION=1.6
-ARG KAFKA_VERSION=3.5.2
+ARG KAFKA_VERSION=3.6.0
 ARG SCALA_VERSION=2.13
 ARG KAFKA_DIR=/opt/kafka
 
@@ -30,7 +30,7 @@ RUN echo "--- Installation prerequisites" \
     && rm -rf openshift-client-linux.tar.gz \
     && mv /tmp/oc /usr/local/bin/ \
     && chmod +x /usr/local/bin/oc \
-    && wget https://downloads.apache.org/kafka/${KAFKA_VERSION}/kafka_${SCALA_VERSION}-${KAFKA_VERSION}.tgz -O /tmp/kafka.tgz \
+    && wget https://archive.apache.org/dist/kafka/${KAFKA_VERSION}/kafka_${SCALA_VERSION}-${KAFKA_VERSION}.tgz -O /tmp/kafka.tgz \
     && tar -xf kafka.tgz -C /opt \
     && mv /opt/kafka_${SCALA_VERSION}-${KAFKA_VERSION} ${KAFKA_DIR} \
     && rm -rf kafka.tgz
